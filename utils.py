@@ -3,7 +3,8 @@ from pycparser import parse_file, c_generator
 from pycparser.c_ast import NodeVisitor
 import pycparser.c_ast as c_ast
 from itertools import zip_longest
-from copy import deepcopy
+from copy import copy, deepcopy
+from functools import reduce
 import re
 
 ###############################################################################
@@ -12,9 +13,6 @@ import re
 
 def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
     "Collect data into non-overlapping fixed-length chunks or blocks"
-    # grouper('ABCDEFG', 3, fillvalue='x') --> ABC DEF Gxx
-    # grouper('ABCDEFG', 3, incomplete='strict') --> ABC DEF ValueError
-    # grouper('ABCDEFG', 3, incomplete='ignore') --> ABC DEF
     args = [iter(iterable)] * n
     if incomplete == 'fill':
         return zip_longest(*args, fillvalue=fillvalue)
@@ -50,6 +48,44 @@ class BetterNodeVisitor(object):
         for i, (name, c) in enumerate(node.children()):
             self.visit(c, node, name, i)
 
+class NodeMapper(object):
+    _method_cache = None
+
+    def map(self, node):
+        """ Map a node.
+        """
+
+        if self._method_cache is None:
+            self._method_cache = {}
+
+        mapper = self._method_cache.get(node.__class__.__name__, None)
+        if mapper is None:
+            method = 'map_' + node.__class__.__name__
+            mapper = getattr(self, method, self.generic_map)
+            self._method_cache[node.__class__.__name__] = mapper
+
+        return mapper(node)
+
+    def generic_map(self, node):
+        """ Called if no explicit visitor function exists for a
+            node. Implements preorder visiting of the node.
+        """
+
+        if isinstance(node, c_ast.Compound):
+            block_items = [self.map(i) for i in node.block_items]
+            return c_ast.Compound(block_items)
+        else:
+            return deepcopy(node)
+
+def loop_lower_bound(for_node):
+    if isinstance(for_node.init, c_ast.DeclList):
+        return for_node.init.decls[0].init # ASSUMPTION
+    elif isinstance(for_node.init, c_ast.Assignment):
+        return for_node.init.rvalue
+
+def loop_iter(for_node):
+    return for_node.cond.left
+
 def step_amount(for_node):
     inc = for_node.next
     if isinstance(inc, c_ast.UnaryOp):
@@ -57,20 +93,29 @@ def step_amount(for_node):
             return c_ast.Constant(type="int", value=1)
     elif isinstance(inc, c_ast.BinaryOp):
         if inc.op == "+=":
-            return inc.rvalue
+            return inc.right
 
 def concat_nodes(node1, node2):
     if isinstance(node1, c_ast.Compound):
         node1_elements = node1.block_items
+        if len(node1_elements) == 0:
+            return node2
+    elif isinstance(node1, list):
+        node1_elements = node1
     else:
         node1_elements = [node1]
 
     if isinstance(node1, c_ast.Compound):
         node2_elements = node2.block_items
+        if len(node1_elements) == 0:
+            return node2
+    elif isinstance(node2, list):
+        node2_elements = node2
     else:
         node2_elements = [node2]
 
-    return c_ast.Compound(node1_elements + node2_elements)
+    elements = node1_elements + node2_elements
+    return c_ast.Compound(elements)
 
 ###############################################################################
 #                                  find scops                                 #
@@ -94,7 +139,7 @@ class ScopFinder(BetterNodeVisitor):
             parent = self.parents[i]
             children = list(iter(parent))
             scop = children[p1[1]:p2[1]+1]
-            self.scops.append(scop)
+            self.scops.append(c_ast.Compound(scop))
 
         return self.scops
 
@@ -140,7 +185,7 @@ def unroll(for_node, n):
         ir.visit(e, None, None, None)
         unrolled_body_elements.append(e)
 
-    new_body = c_ast.Compound(unrolled_body_elements)
+    new_body = reduce(concat_nodes, unrolled_body_elements)
 
     return c_ast.For(init, cond, new_inc, new_body)
 
@@ -149,16 +194,17 @@ def all_equal(l):
     first_item = hashed_list[0]
     return all([item == first_item for item in hashed_list])
 
-# take a list of for loops, assuming they have the same bounds, make a new for
+# take a non empty list of for loops, assuming they have the same bounds, make a new for
 # loop with their bodies combined
 def jam(for_nodes):
+    assert len(for_nodes) > 1
     assert all_equal([f.init for f in for_nodes])
     assert all_equal([f.cond for f in for_nodes])
     assert all_equal([f.next for f in for_nodes])
     init = for_nodes[0].init
     cond = for_nodes[0].cond
     inc = for_nodes[0].next
-    new_body = c_ast.Compound([f.stmt for f in for_nodes])
+    new_body = reduce(concat_nodes, [f.stmt for f in for_nodes])
     return c_ast.For(init, cond, inc, new_body)
 
 # unroll the top loop and combine the loops that are in the unrolled body
@@ -166,15 +212,35 @@ def unroll_and_jam(for_node, n):
     unrolled_for = unroll(for_node, n)
     non_loop_children = list(filter(lambda c: not isinstance(c, c_ast.For), unrolled_for.stmt.block_items))
     loop_children = list(filter(lambda c: isinstance(c, c_ast.For), unrolled_for.stmt.block_items))
-    jammed_loop_child = jam(loop_children)
-    new_children = non_loop_children + [jammed_loop_child]
-    unrolled_for.stmt = c_ast.Compound(new_children)
+    if len(loop_children) > 1:
+        jammed_loop_child = jam(loop_children)
+        new_children = concat_nodes(non_loop_children, jammed_loop_child)
+    else:
+        new_children = c_ast.Compound(non_loop_children)
+
+    unrolled_for.stmt = new_children
     return unrolled_for
 
+class Unroller(NodeMapper):
+    def __init__(self, unroll_guide):
+        self.unroll_guide = unroll_guide
+
+    def map_For(self, node):
+        iter_id = loop_iter(node)
+        if iter_id.name in self.unroll_guide:
+            n = self.unroll_guide[iter_id.name]
+            loop = unroll_and_jam(node, n)
+        else:
+            loop = node
+
+        loop.stmt = self.generic_map(loop.stmt)
+        return loop
+
 # traverse the for_node and unroll_and_jam by the amount specified for its
-# iterator's name. THIS MUTATES FOR_NODE.
-def unroll_and_jam_loop_nest(for_node, unroll_guide):
-    return None
+# iterator's name.
+def preform_all_unrolling(for_node, unroll_guide):
+    u = Unroller(unroll_guide)
+    return u.map(for_node)
 
 ###############################################################################
 #                                     licm                                    #
@@ -228,7 +294,7 @@ class InvariantExprReplacer(BetterNodeVisitor):
 # dict. returns the for loop with replaced expressions and the dict
 # SIMPLIFICATION: ONLY CONSIDER ARRAY REFERENCES
 def extract_invariant_code(for_node, i):
-    iter_id_name = for_node.next.expr.name # ASSUMPTION
+    iter_id_name = loop_iter(for_node).name # ASSUMPTION
     ier = InvariantExprReplacer(iter_id_name, i)
     new_body = deepcopy(for_node.stmt)
     ier.visit(new_body, None, None, None)
@@ -248,21 +314,38 @@ def make_decl(name, init):
                       init=init,
                       bitsize=None)
 
-    return c_ast.DeclList(decls=[decl])
+    return decl
 
 # create a compound stmt containing initialization code for loop invariant
 # variables and the for loop with the invariant code replaced.
 def hoist(for_node, i=0):
     new_for_node, invariants_dict = extract_invariant_code(for_node, i)
     invariant_init = [make_decl(name, init) for name, init in invariants_dict.items()]
-    return c_ast.Compound(invariant_init + [new_for_node])
+    return concat_nodes(invariant_init, new_for_node)
+
+class Hoister(NodeMapper):
+    def __init__(self):
+        self.invariant_i = 0
+        self.applied = False
+
+    def map_For(self, node):
+        body = self.map(node.stmt)
+        node.stmt = body
+
+        if not self.applied:
+            loop = hoist(node, self.invariant_i)
+            self.applied = True
+        else:
+            loop = node
+
+        return loop
 
 # does a post-order traversal of the for loop nest. at each for_loop, hoist
 # it. hoisting a higher loop can hoist the initialization created from hoisting
 # a lower loop.
 def preform_all_hoisting(for_node):
-    i = 0
-    return None
+    h = Hoister()
+    return h.map(for_node)
 
 ###############################################################################
 #                                 prefetching                                 #
@@ -300,7 +383,7 @@ class ExprReplacer(BetterNodeVisitor):
 # dict.
 # SIMPLIFICATION: ONLY CONSIDER ARRAY REFERENCES
 def extract_data_for_prefetching(for_node, j):
-    iter_id_name = for_node.next.expr.name # ASSUMPTION
+    iter_id_name = loop_iter(for_node).name # ASSUMPTION
     er = ExprReplacer(j)
     new_body = deepcopy(for_node.stmt)
     er.visit(new_body, None, None, None)
@@ -322,8 +405,8 @@ def make_assignment(name, value):
 def prefetch(for_node, j=0):
     new_for_node, expr_dict = extract_data_for_prefetching(for_node, j)
     # init = new_for_node.init.rvalue # ASSUMPTION
-    iter_id = new_for_node.next.expr # ASSUMPTION
-    init = new_for_node.init.decls[0].init # ASSUMPTION
+    iter_id = loop_iter(new_for_node) # ASSUMPTION
+    lower_bound = loop_lower_bound(new_for_node)
     inc = step_amount(new_for_node)
     body = new_for_node.stmt
 
@@ -332,9 +415,9 @@ def prefetch(for_node, j=0):
     # the prologue, which initializes the prefetched expressions
     prefetch_declarations = [deepcopy(make_decl(name, init)) for name, init in expr_dict.items()]
     prologue_block = c_ast.Compound(prefetch_declarations)
-    ir = IdReplacer({iter_id.name: init})
-    ir.visit(prefetch_block, None, None, None)
-    result_block += prefetch_block
+    ir = IdReplacer({iter_id.name: lower_bound})
+    ir.visit(prologue_block, None, None, None)
+    result_block += prologue_block
 
     # the loop, with prefetching appended to the loop body
     prefetch_assignments = [deepcopy(make_assignment(name, init)) for name, init in expr_dict.items()]
@@ -349,8 +432,26 @@ def prefetch(for_node, j=0):
 
     return c_ast.Compound(result_block)
 
-# does a post-order traversal of the for loop nest. at each for_loop, add data
-# prefetching. there should be no interference between loops in this operation
-def preform_all_prefetching(for_node_compound_stmt):
-    i = 0
-    return None
+class Prefetcher(NodeMapper):
+    def __init__(self):
+        self.prefetch_j = 0
+        self.applied = False
+
+    def map_For(self, node):
+        body = self.map(node.stmt)
+        node.stmt = body
+
+        if not self.applied:
+            loop = prefetch(node, self.prefetch_j)
+            self.applied = True
+        else:
+            loop = node
+
+        return loop
+
+# does a post-order traversal of the for loop nest. at each for_loop, hoist
+# it. hoisting a higher loop can hoist the initialization created from hoisting
+# a lower loop.
+def preform_all_prefetching(for_node):
+    p = Prefetcher()
+    return p.map(for_node)
