@@ -83,8 +83,17 @@ def loop_lower_bound(for_node):
     elif isinstance(for_node.init, c_ast.Assignment):
         return for_node.init.rvalue
 
+def loop_upper_bound(for_node):
+    return for_node.cond.right
+
 def loop_iter(for_node):
     return for_node.cond.left
+
+def loop_children(for_node):
+    if isinstance(for_node.stmt, c_ast.Compound):
+        return for_node.stmt.block_items
+    else:
+        return [for_node.stmt]
 
 def step_amount(for_node):
     inc = for_node.next
@@ -105,9 +114,9 @@ def concat_nodes(node1, node2):
     else:
         node1_elements = [node1]
 
-    if isinstance(node1, c_ast.Compound):
+    if isinstance(node2, c_ast.Compound):
         node2_elements = node2.block_items
-        if len(node1_elements) == 0:
+        if len(node2_elements) == 0:
             return node2
     elif isinstance(node2, list):
         node2_elements = node2
@@ -210,13 +219,13 @@ def jam(for_nodes):
 # unroll the top loop and combine the loops that are in the unrolled body
 def unroll_and_jam(for_node, n):
     unrolled_for = unroll(for_node, n)
-    non_loop_children = list(filter(lambda c: not isinstance(c, c_ast.For), unrolled_for.stmt.block_items))
-    loop_children = list(filter(lambda c: isinstance(c, c_ast.For), unrolled_for.stmt.block_items))
-    if len(loop_children) > 1:
-        jammed_loop_child = jam(loop_children)
-        new_children = concat_nodes(non_loop_children, jammed_loop_child)
+    non_for_children = list(filter(lambda c: not isinstance(c, c_ast.For), loop_children(unrolled_for)))
+    for_children = list(filter(lambda c: isinstance(c, c_ast.For), loop_children(unrolled_for)))
+    if len(for_children) > 1:
+        jammed_loop_child = jam(for_children)
+        new_children = concat_nodes(non_for_children, jammed_loop_child)
     else:
-        new_children = c_ast.Compound(non_loop_children)
+        new_children = c_ast.Compound(non_for_children)
 
     unrolled_for.stmt = new_children
     return unrolled_for
@@ -231,7 +240,7 @@ class Unroller(NodeMapper):
             n = self.unroll_guide[iter_id.name]
             loop = unroll_and_jam(node, n)
         else:
-            loop = node
+            loop = deepcopy(node)
 
         loop.stmt = self.generic_map(loop.stmt)
         return loop
@@ -401,13 +410,16 @@ def make_assignment(name, value):
 # create a compound stmt containing initialization code for prefetched data, the
 # for loop with the prefetched data replaced, prefetch variable updates at the
 # end of the loop, and finally an epilogue which repeats the loop body with
-# prefetched data replaced.
+# prefetched data replaced. The last INC iterations of the loop are also peeled.
 def prefetch(for_node, j=0):
     new_for_node, expr_dict = extract_data_for_prefetching(for_node, j)
     # init = new_for_node.init.rvalue # ASSUMPTION
     iter_id = loop_iter(new_for_node) # ASSUMPTION
     lower_bound = loop_lower_bound(new_for_node)
+    upper_bound = loop_upper_bound(new_for_node)
     inc = step_amount(new_for_node)
+    new_upper_bound = c_ast.BinaryOp("-", upper_bound, inc)
+    new_for_node.cond.right = new_upper_bound
     body = new_for_node.stmt
 
     result_block = []
