@@ -8,9 +8,6 @@ from itertools import zip_longest
 from utils import *
 import re
 
-source = "./gemver-pre.c"
-destination = "./gemver.c"
-
 class TransformationApplier(BetterNodeVisitor):
     def visit_Pragma(self, node, parent, name, index):
         if "unroll" in node.string:
@@ -58,4 +55,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 2:
         transform(sys.argv[1], sys.argv[2])
     else:
-        print("Usage: transform.py source dest")
+        print("Usage: ./transform.py input-file output-file")
