@@ -27,11 +27,11 @@ class TransformationApplier(BetterNodeVisitor):
             dump(loop)
             parent.block_items[index + 1] = loop
 
-source = "./benchmarks/fdtd-apml.ppcg.c.in"
-destination = "./nothing.txt"
+# source = "./benchmarks/fdtd-apml.ppcg.c.in"
+# destination = "./nothing.txt"
 
 def transform(source, destination):
-    ast = parse_file(source, use_cpp=True, cpp_args=[r'-I../pycparser/utils/fake_libc_include',
+    ast = parse_file(source, use_cpp=True, cpp_args=[r'-I./pycparser/utils/fake_libc_include',
                                                      r'-I.'])
 
     sf = ScopFinder()
