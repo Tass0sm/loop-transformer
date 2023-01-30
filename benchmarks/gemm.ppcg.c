@@ -92,6 +92,56 @@ void kernel_gemm(int ni, int nj, int nk,
 
 }
 
+/* Main computational kernel. The whole function will be timed,
+   including the call and return. */
+static
+void kernel_gemm_opt(int ni, int nj, int nk,
+                     DATA_TYPE alpha,
+                     DATA_TYPE beta,
+                     DATA_TYPE POLYBENCH_2D(C,NI,NJ,ni,nj),
+                     DATA_TYPE POLYBENCH_2D(A,NI,NK,ni,nk),
+                     DATA_TYPE POLYBENCH_2D(B,NK,NJ,nk,nj))
+{
+  int i, j, k;
+
+  /* ppcg generated CPU code */
+
+  #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; })
+  #define ppcg_max(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x > _y ? _x : _y; })
+  #pragma omp parallel for
+  #pragma coalesce (c0,c1)
+  for (int c0 = 0; c0 < ni; c0 += 32)
+    for (int c1 = 0; c1 < nj; c1 += 32)
+      for (int c2 = 0; c2 <= ppcg_max(0, nk - 1); c2 += 32)
+        for (int c3 = c0; c3 <= ppcg_min(ni - 1, c0 + 31); c3 += 1)
+          for (int c4 = c1; c4 <= ppcg_min(nj - 1, c1 + 31); c4 += 1) {
+            if (c2 == 0)
+              C[c3][c4] *= beta;
+            #pragma unroll (c3:4,c5:2), licm
+            for (int c5 = c2; c5 <= ppcg_min(nk - 1, c2 + 31); c5 += 1)
+              C[c3][c4] += ((alpha * A[c3][c5]) * B[c5][c4]);
+          }
+
+}
+
+static
+void check(int ni, int nj,
+           DATA_TYPE POLYBENCH_2D(C1,NI,NJ,ni,nj),
+           DATA_TYPE POLYBENCH_2D(C2,NI,NJ,ni,nj))
+{
+  int i, j;
+  DATA_TYPE diff = 0.0;
+  #define abs(x) ((x) >= 0? (x) : -(x))
+
+  for (i = 0; i < ni; i++)
+    for (j = 0; j < nj; j++)
+      diff += abs(C2[i][j]-C1[i][j]);
+
+  if (diff > 0.000001)
+    printf ("CHECK FAIL\n");
+  else
+    printf ("CHECK PASS\n");
+}
 
 int main(int argc, char** argv)
 {
@@ -103,9 +153,32 @@ int main(int argc, char** argv)
   /* Variable declaration/allocation. */
   DATA_TYPE alpha;
   DATA_TYPE beta;
-  POLYBENCH_2D_ARRAY_DECL(C,DATA_TYPE,NI,NJ,ni,nj);
+  POLYBENCH_2D_ARRAY_DECL(C,     DATA_TYPE,NI,NJ,ni,nj); /* Output Array for Normal Kernel */
+  POLYBENCH_2D_ARRAY_DECL(C_opt, DATA_TYPE,NI,NJ,ni,nj); /* Output Array for Opt Kernel */
   POLYBENCH_2D_ARRAY_DECL(A,DATA_TYPE,NI,NK,ni,nk);
   POLYBENCH_2D_ARRAY_DECL(B,DATA_TYPE,NK,NJ,nk,nj);
+
+#ifdef OPT
+  /* Initialize array(s). */
+  init_array (ni, nj, nk, &alpha, &beta,
+	      POLYBENCH_ARRAY(C_opt),
+	      POLYBENCH_ARRAY(A),
+	      POLYBENCH_ARRAY(B));
+
+  /* Start timer. */
+  polybench_start_instruments;
+
+  /* Run kernel. */
+  kernel_gemm_opt (ni, nj, nk,
+                   alpha, beta,
+                   POLYBENCH_ARRAY(C_opt),
+                   POLYBENCH_ARRAY(A),
+                   POLYBENCH_ARRAY(B));
+
+  /* Stop and print timer. */
+  polybench_stop_instruments;
+  polybench_print_instruments;
+#endif
 
   /* Initialize array(s). */
   init_array (ni, nj, nk, &alpha, &beta,
@@ -118,21 +191,29 @@ int main(int argc, char** argv)
 
   /* Run kernel. */
   kernel_gemm (ni, nj, nk,
-	       alpha, beta,
-	       POLYBENCH_ARRAY(C),
-	       POLYBENCH_ARRAY(A),
-	       POLYBENCH_ARRAY(B));
+               alpha, beta,
+               POLYBENCH_ARRAY(C),
+               POLYBENCH_ARRAY(A),
+               POLYBENCH_ARRAY(B));
 
+#ifndef OPT
   /* Stop and print timer. */
   polybench_stop_instruments;
   polybench_print_instruments;
+#endif
 
   /* Prevent dead-code elimination. All live-out data must be printed
      by the function call in argument. */
   polybench_prevent_dce(print_array(ni, nj,  POLYBENCH_ARRAY(C)));
+  polybench_prevent_dce(print_array(ni, nj,  POLYBENCH_ARRAY(C_opt)));
+
+#ifdef OPT
+  check (ni, nj, POLYBENCH_ARRAY(C), POLYBENCH_ARRAY(C_opt));
+#endif
 
   /* Be clean. */
   POLYBENCH_FREE_ARRAY(C);
+  POLYBENCH_FREE_ARRAY(C_opt);
   POLYBENCH_FREE_ARRAY(A);
   POLYBENCH_FREE_ARRAY(B);
 

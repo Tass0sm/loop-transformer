@@ -226,7 +226,9 @@ int main(int argc, char** argv)
   /* Be clean. */
   POLYBENCH_FREE_ARRAY(A);
   POLYBENCH_FREE_ARRAY(x1);
+  POLYBENCH_FREE_ARRAY(x1_opt);
   POLYBENCH_FREE_ARRAY(x2);
+  POLYBENCH_FREE_ARRAY(x2_opt);
   POLYBENCH_FREE_ARRAY(y_1);
   POLYBENCH_FREE_ARRAY(y_2);
 
