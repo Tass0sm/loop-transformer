@@ -124,7 +124,7 @@ void kernel_fdtd_apml(int cz,
 
   /* ppcg generated CPU code */
   
-  #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; })
+  /* #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; }) */
   {
     #pragma omp parallel for
     #pragma coalesce (c0,c1)
@@ -216,16 +216,16 @@ void kernel_fdtd_apml_opt(int cz,
 
   /* ppcg generated CPU code */
 
-  #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; })
   {
+#pragma scop
     #pragma omp parallel for
     #pragma coalesce (c0,c1)
+#pragma unroll (c3:4,c5:2), licm
     for (int c0 = 0; c0 < cz; c0 += 32)
       for (int c1 = 0; c1 < cym; c1 += 32)
         for (int c2 = 0; c2 < cxm; c2 += 32)
           for (int c3 = c0; c3 <= ppcg_min(cz - 1, c0 + 31); c3 += 1)
             for (int c4 = c1; c4 <= ppcg_min(cym - 1, c1 + 31); c4 += 1)
-              #pragma unroll (c3:4,c5:2), licm
               for (int c5 = c2; c5 <= ppcg_min(cxm - 1, c2 + 31); c5 += 1) {
                 clf[c3][c4] = (((Ex[c3][c4][c5] - Ex[c3][c4 + 1][c5]) + Ey[c3][c4][c5 + 1]) - Ey[c3][c4][c5]);
                 tmp[c3][c4] = (((cymh[c4] / cyph[c4]) * Bza[c3][c4][c5]) - ((ch / cyph[c4]) * clf[c3][c4]));
@@ -234,10 +234,10 @@ void kernel_fdtd_apml_opt(int cz,
               }
     #pragma omp parallel for
     #pragma coalesce (c0,c1)
+#pragma unroll (c2:4,c3:2), licm
     for (int c0 = 0; c0 < cz; c0 += 32)
       for (int c1 = 0; c1 < cym; c1 += 32)
         for (int c2 = c0; c2 <= ppcg_min(cz - 1, c0 + 31); c2 += 1)
-          #pragma unroll (c2:4,c3:2), licm
           for (int c3 = c1; c3 <= ppcg_min(cym - 1, c1 + 31); c3 += 1) {
             clf[c2][c3] = (((Ex[c2][c3][cxm] - Ex[c2][c3 + 1][cxm]) + Ry[c2][c3]) - Ey[c2][c3][cxm]);
             tmp[c2][c3] = (((cymh[c3] / cyph[c3]) * Bza[c2][c3][cxm]) - ((ch / cyph[c3]) * clf[c2][c3]));
@@ -246,12 +246,12 @@ void kernel_fdtd_apml_opt(int cz,
           }
     #pragma omp parallel for
     #pragma coalesce (c0,c1)
+#pragma unroll (c3:4,c5:2), licm
     for (int c0 = 0; c0 < cz; c0 += 32)
       for (int c1 = 0; c1 < cxm; c1 += 32)
         for (int c2 = 0; c2 < cym; c2 += 32)
           for (int c3 = c0; c3 <= ppcg_min(cz - 1, c0 + 31); c3 += 1)
             for (int c4 = c1; c4 <= ppcg_min(cxm - 1, c1 + 31); c4 += 1)
-              #pragma unroll (c3:4,c5:2), licm
               for (int c5 = c2; c5 <= ppcg_min(cym - 1, c2 + 31); c5 += 1) {
                 clf[c3][c5] = (((Ex[c3][cym][c4] - Ax[c3][c4]) + Ey[c3][cym][c4 + 1]) - Ey[c3][cym][c4]);
                 tmp[c3][c5] = (((cymh[cym] / cyph[c5]) * Bza[c3][c5][c4]) - ((ch / cyph[c5]) * clf[c3][c5]));
@@ -260,23 +260,24 @@ void kernel_fdtd_apml_opt(int cz,
               }
     #pragma omp parallel for
     #pragma coalesce (c0,c1)
+#pragma unroll (c2:4,c3:2), licm
     for (int c0 = 0; c0 < cz; c0 += 32)
       for (int c1 = 0; c1 < cym; c1 += 32)
         for (int c2 = c0; c2 <= ppcg_min(cz - 1, c0 + 31); c2 += 1)
-          #pragma unroll (c2:4,c3:2), licm
           for (int c3 = c1; c3 <= ppcg_min(cym - 1, c1 + 31); c3 += 1)
             clf[c2][c3] = (((Ex[c2][cym][cxm] - Ax[c2][cxm]) + Ry[c2][cym]) - Ey[c2][cym][cxm]);
     #pragma omp parallel for
     #pragma coalesce (c0,c1)
+#pragma unroll (c2:4,c3:2), licm
     for (int c0 = 0; c0 < cz; c0 += 32)
       for (int c1 = 0; c1 < cym; c1 += 32)
         for (int c2 = c0; c2 <= ppcg_min(cz - 1, c0 + 31); c2 += 1)
-          #pragma unroll (c2:4,c3:2), licm
           for (int c3 = c1; c3 <= ppcg_min(cym - 1, c1 + 31); c3 += 1) {
             tmp[c2][c3] = (((cymh[cym] / cyph[cym]) * Bza[c2][cym][cxm]) - ((ch / cyph[cym]) * clf[c2][c3]));
             Hz[c2][cym][cxm] = ((((cxmh[cxm] / cxph[cxm]) * Hz[c2][cym][cxm]) + (((mui * czp[c2]) / cxph[cxm]) * tmp[c2][c3])) - (((mui * czm[c2]) / cxph[cxm]) * Bza[c2][cym][cxm]));
             Bza[c2][cym][cxm] = tmp[c2][c3];
           }
+#pragma endscop
   }
 
 }
