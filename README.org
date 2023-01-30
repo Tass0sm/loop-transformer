@@ -1,0 +1,13 @@
+- Apply transformations specified by pragmas in the file fdtd-apml.ppcg.c.in,
+  and write the transformed file to fdtd-apml.ppcg.c.
+
+: ./transform.sh fdtd-apml.ppcg
+
+- The definition of ppcg_min and ppcg_max are commented out in the *.in files
+  because it breaks the parser. Need to uncomment them before compiling.
+
+- Compile fdtd-apml.ppcg.c and execute it in three ways. It should compare the
+  sequential, unmodified kernel with the transformed kernel in sequential and
+  parallel modes.
+
+: ./check.sh fdtd-apml.ppcg
