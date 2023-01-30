@@ -121,6 +121,75 @@ void kernel_gemver(int n,
   }
 }
 
+/* Main computational kernel. The whole function will be timed,
+   including the call and return. */
+static
+void kernel_gemver_opt(int n,
+                       DATA_TYPE alpha,
+                       DATA_TYPE beta,
+                       DATA_TYPE POLYBENCH_2D(A,N,N,n,n),
+                       DATA_TYPE POLYBENCH_1D(u1,N,n),
+                       DATA_TYPE POLYBENCH_1D(v1,N,n),
+                       DATA_TYPE POLYBENCH_1D(u2,N,n),
+                       DATA_TYPE POLYBENCH_1D(v2,N,n),
+                       DATA_TYPE POLYBENCH_1D(w,N,n),
+                       DATA_TYPE POLYBENCH_1D(x,N,n),
+                       DATA_TYPE POLYBENCH_1D(y,N,n),
+                       DATA_TYPE POLYBENCH_1D(z,N,n))
+{
+  int i, j;
+
+  /* ppcg generated CPU code */
+
+  #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; })
+  {
+    #pragma omp parallel for
+    #pragma coalesce (c0,c1)
+    for (int c0 = 0; c0 < n; c0 += 32)
+      for (int c1 = 0; c1 < n; c1 += 32)
+        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1)
+          #pragma unroll (c2:4,c3:2), licm
+          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
+            A[c2][c3] = ((A[c2][c3] + (u1[c2] * v1[c3])) + (u2[c2] * v2[c3]));
+    #pragma omp parallel for
+    #pragma coalesce (c0)
+    for (int c0 = 0; c0 < n; c0 += 32)
+      for (int c1 = 0; c1 <= n; c1 += 32)
+        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1) {
+          #pragma unroll (c2:4,c3:2), licm
+          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
+            x[c2] = (x[c2] + ((beta * A[c3][c2]) * y[c3]));
+          if (c1 + 31 >= n)
+            x[c2] = (x[c2] + z[c2]);
+        }
+    #pragma omp parallel for
+    #pragma coalesce (c0)
+    for (int c0 = 0; c0 < n; c0 += 32)
+      for (int c1 = 0; c1 < n; c1 += 32)
+        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1)
+          #pragma unroll (c2:4,c3:2), licm
+          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
+            w[c2] = (w[c2] + ((alpha * A[c2][c3]) * x[c3]));
+  }
+}
+
+static
+void check (int n,
+		 DATA_TYPE POLYBENCH_1D(q1,N,n),
+		 DATA_TYPE POLYBENCH_1D(q2,N,n))
+{
+  int i, j;
+  #define abs(x) ((x) >= 0 ? (x) : -(x))
+  DATA_TYPE diff = 0.0;
+  for (i = 0; i < _PB_N; i++)
+    {
+      diff += abs(q1[i] - q2[i]);
+    }
+  if (diff > 0.000001)
+    printf ("CHECK FAIL\n");
+  else
+    printf ("CHECK PASS\n");
+}
 
 int main(int argc, char** argv)
 {
@@ -135,11 +204,44 @@ int main(int argc, char** argv)
   POLYBENCH_1D_ARRAY_DECL(v1, DATA_TYPE, N, n);
   POLYBENCH_1D_ARRAY_DECL(u2, DATA_TYPE, N, n);
   POLYBENCH_1D_ARRAY_DECL(v2, DATA_TYPE, N, n);
-  POLYBENCH_1D_ARRAY_DECL(w, DATA_TYPE, N, n);
+  POLYBENCH_1D_ARRAY_DECL(w,     DATA_TYPE, N, n);  /* Output Array for Normal Kernel */
+  POLYBENCH_1D_ARRAY_DECL(w_opt, DATA_TYPE, N, n);  /* Output Array for Opt Kernel */
   POLYBENCH_1D_ARRAY_DECL(x, DATA_TYPE, N, n);
   POLYBENCH_1D_ARRAY_DECL(y, DATA_TYPE, N, n);
   POLYBENCH_1D_ARRAY_DECL(z, DATA_TYPE, N, n);
 
+#ifdef OPT
+  /* Initialize array(s). */
+  init_array (n, &alpha, &beta,
+	      POLYBENCH_ARRAY(A),
+	      POLYBENCH_ARRAY(u1),
+	      POLYBENCH_ARRAY(v1),
+	      POLYBENCH_ARRAY(u2),
+	      POLYBENCH_ARRAY(v2),
+	      POLYBENCH_ARRAY(w_opt),
+	      POLYBENCH_ARRAY(x),
+	      POLYBENCH_ARRAY(y),
+	      POLYBENCH_ARRAY(z));
+
+  /* Start timer. */
+  polybench_start_instruments;
+
+  /* Run kernel. */
+  kernel_gemver_opt (n, alpha, beta,
+                     POLYBENCH_ARRAY(A),
+                     POLYBENCH_ARRAY(u1),
+                     POLYBENCH_ARRAY(v1),
+                     POLYBENCH_ARRAY(u2),
+                     POLYBENCH_ARRAY(v2),
+                     POLYBENCH_ARRAY(w_opt),
+                     POLYBENCH_ARRAY(x),
+                     POLYBENCH_ARRAY(y),
+                     POLYBENCH_ARRAY(z));
+
+  /* Stop and print timer. */
+  polybench_stop_instruments;
+  polybench_print_instruments;
+#endif
 
   /* Initialize array(s). */
   init_array (n, &alpha, &beta,
@@ -168,13 +270,20 @@ int main(int argc, char** argv)
 		 POLYBENCH_ARRAY(y),
 		 POLYBENCH_ARRAY(z));
 
+#ifndef OPT
   /* Stop and print timer. */
   polybench_stop_instruments;
   polybench_print_instruments;
+#endif
 
   /* Prevent dead-code elimination. All live-out data must be printed
      by the function call in argument. */
   polybench_prevent_dce(print_array(n, POLYBENCH_ARRAY(w)));
+  polybench_prevent_dce(print_array(n, POLYBENCH_ARRAY(w_opt)));
+
+#ifdef OPT
+  check (n, POLYBENCH_ARRAY(w), POLYBENCH_ARRAY(w_opt));
+#endif
 
   /* Be clean. */
   POLYBENCH_FREE_ARRAY(A);
