@@ -306,15 +306,30 @@ class IdFinder(NodeVisitor):
         if node.name == self.target_name:
             self.found = True
 
-# checks if node references the for_node iterator at all
-def is_loop_invariant(node, iter_id_name):
+class AssignmentLeftSearcher(NodeVisitor):
+    def __init__(self, node):
+        self.target_node = node
+        self.found = False
+
+    def visit_Assignment(self, node):
+        if nodes_equal(node.lvalue, self.target_node):
+            self.found = True
+
+# checks if node references the for_node iterator at all and also if the node is
+# contained in the left hand sign of any assignment
+def is_loop_invariant(node, for_node):
+    iter_id_name = loop_iter(for_node).name
     id_finder = IdFinder(iter_id_name)
     id_finder.visit(node)
-    return not id_finder.found
+
+    left_searcher = AssignmentLeftSearcher(node)
+    left_searcher.visit(for_node)
+
+    return (not id_finder.found) and (not left_searcher.found)
 
 class InvariantExprMapper(NodeMapper):
-    def __init__(self, target_name, i):
-        self.target_name = target_name
+    def __init__(self, target_loop, i):
+        self.target_loop = target_loop
         self.invariant_expr_i = i
         self.name_to_invariant_expr_dict = {}
         self.invariant_expr_to_name_dict = {}
@@ -330,7 +345,7 @@ class InvariantExprMapper(NodeMapper):
         return new_node
 
     def map_ArrayRef(self, node):
-        if is_loop_invariant(node, self.target_name):
+        if is_loop_invariant(node, self.target_loop):
             if hash(repr(node)) not in self.invariant_expr_to_name_dict.keys():
                 temp_name = f"invariant_{self.invariant_expr_i}"
                 self.invariant_expr_to_name_dict[hash(repr(node))] = temp_name
@@ -348,8 +363,7 @@ class InvariantExprMapper(NodeMapper):
 # dict. returns the for loop with replaced expressions and the dict
 # SIMPLIFICATION: ONLY CONSIDER ARRAY REFERENCES
 def extract_invariant_code(for_node, i):
-    iter_id_name = loop_iter(for_node).name # ASSUMPTION
-    iem = InvariantExprMapper(iter_id_name, i)
+    iem = InvariantExprMapper(for_node, i)
     new_body = deepcopy(for_node.stmt)
     new_body = iem.map(new_body)
 

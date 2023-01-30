@@ -42,9 +42,9 @@ def transform(source, destination):
         text = s.read()
         indexed_lines = list(enumerate(text.split("\n")))
 
-        # ta = TransformationApplier()
+        ta = TransformationApplier()
         for s in scops:
-            # ta.visit(s, None, None, None)
+            ta.visit(s, None, None, None)
 
             l0 = s.block_items[0].coord.line - 1
             l1 = s.block_items[-1].coord.line - 1
@@ -52,7 +52,7 @@ def transform(source, destination):
             replacement = generator.visit(s)
             replace_code_between_lines(indexed_lines, replacement, l0, l1)
 
-        for_node = s.block_items[1].block_items[7]
+        # for_node = s.block_items[1].block_items[7]
         # for_node = for_node.stmt.stmt
 
         lines = [il[1] for il in indexed_lines]
