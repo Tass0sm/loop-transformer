@@ -140,37 +140,141 @@ void kernel_gemver_opt(int n,
   int i, j;
 
   /* ppcg generated CPU code */
-
-  #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; })
+{
+  #pragma scop
   {
     #pragma omp parallel for
     #pragma coalesce (c0,c1)
+    #pragma unroll (c2:4,c3:2), licm
     for (int c0 = 0; c0 < n; c0 += 32)
       for (int c1 = 0; c1 < n; c1 += 32)
-        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1)
-          #pragma unroll (c2:4,c3:2), licm
-          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
-            A[c2][c3] = ((A[c2][c3] + (u1[c2] * v1[c3])) + (u2[c2] * v2[c3]));
+      for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 4)
+    {
+      DATA_TYPE invariant_0 = u1[c2 + 0];
+      DATA_TYPE invariant_1 = u2[c2 + 0];
+      DATA_TYPE invariant_2 = u1[c2 + 1];
+      DATA_TYPE invariant_3 = u2[c2 + 1];
+      DATA_TYPE invariant_4 = u1[c2 + 2];
+      DATA_TYPE invariant_5 = u2[c2 + 2];
+      DATA_TYPE invariant_6 = u1[c2 + 3];
+      DATA_TYPE invariant_7 = u2[c2 + 3];
+      for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+      {
+        A[c2 + 0][c3 + 0] = (A[c2 + 0][c3 + 0] + (invariant_0 * v1[c3 + 0])) + (invariant_1 * v2[c3 + 0]);
+        A[c2 + 0][c3 + 1] = (A[c2 + 0][c3 + 1] + (invariant_0 * v1[c3 + 1])) + (invariant_1 * v2[c3 + 1]);
+        A[c2 + 1][c3 + 0] = (A[c2 + 1][c3 + 0] + (invariant_2 * v1[c3 + 0])) + (invariant_3 * v2[c3 + 0]);
+        A[c2 + 1][c3 + 1] = (A[c2 + 1][c3 + 1] + (invariant_2 * v1[c3 + 1])) + (invariant_3 * v2[c3 + 1]);
+        A[c2 + 2][c3 + 0] = (A[c2 + 2][c3 + 0] + (invariant_4 * v1[c3 + 0])) + (invariant_5 * v2[c3 + 0]);
+        A[c2 + 2][c3 + 1] = (A[c2 + 2][c3 + 1] + (invariant_4 * v1[c3 + 1])) + (invariant_5 * v2[c3 + 1]);
+        A[c2 + 3][c3 + 0] = (A[c2 + 3][c3 + 0] + (invariant_6 * v1[c3 + 0])) + (invariant_7 * v2[c3 + 0]);
+        A[c2 + 3][c3 + 1] = (A[c2 + 3][c3 + 1] + (invariant_6 * v1[c3 + 1])) + (invariant_7 * v2[c3 + 1]);
+      }
+
+    }
+
+
+
     #pragma omp parallel for
     #pragma coalesce (c0)
+    #pragma unroll (c2:4,c3:2), licm
     for (int c0 = 0; c0 < n; c0 += 32)
       for (int c1 = 0; c1 <= n; c1 += 32)
-        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1) {
-          #pragma unroll (c2:4,c3:2), licm
-          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
-            x[c2] = (x[c2] + ((beta * A[c3][c2]) * y[c3]));
-          if (c1 + 31 >= n)
-            x[c2] = (x[c2] + z[c2]);
+      for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 4)
+    {
+      {
+        DATA_TYPE invariant_0 = x[c2 + 0];
+        for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+        {
+          x[c2 + 0] = invariant_0 + ((beta * A[c3 + 0][c2 + 0]) * y[c3 + 0]);
+          x[c2 + 0] = invariant_0 + ((beta * A[c3 + 1][c2 + 0]) * y[c3 + 1]);
         }
+
+      }
+      if ((c1 + 31) >= n)
+        x[c2 + 0] = x[c2 + 0] + z[c2 + 0];
+      for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+      {
+        x[c2 + 1] = x[c2 + 1] + ((beta * A[c3 + 0][c2 + 1]) * y[c3 + 0]);
+        x[c2 + 1] = x[c2 + 1] + ((beta * A[c3 + 1][c2 + 1]) * y[c3 + 1]);
+      }
+
+      if ((c1 + 31) >= n)
+        x[c2 + 1] = x[c2 + 1] + z[c2 + 1];
+      for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+      {
+        x[c2 + 2] = x[c2 + 2] + ((beta * A[c3 + 0][c2 + 2]) * y[c3 + 0]);
+        x[c2 + 2] = x[c2 + 2] + ((beta * A[c3 + 1][c2 + 2]) * y[c3 + 1]);
+      }
+
+      if ((c1 + 31) >= n)
+        x[c2 + 2] = x[c2 + 2] + z[c2 + 2];
+      for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+      {
+        x[c2 + 3] = x[c2 + 3] + ((beta * A[c3 + 0][c2 + 3]) * y[c3 + 0]);
+        x[c2 + 3] = x[c2 + 3] + ((beta * A[c3 + 1][c2 + 3]) * y[c3 + 1]);
+      }
+
+      if ((c1 + 31) >= n)
+        x[c2 + 3] = x[c2 + 3] + z[c2 + 3];
+    }
+
+
+
     #pragma omp parallel for
     #pragma coalesce (c0)
+    #pragma unroll (c2:4,c3:2)
     for (int c0 = 0; c0 < n; c0 += 32)
       for (int c1 = 0; c1 < n; c1 += 32)
-        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1)
-          #pragma unroll (c2:4,c3:2), licm
-          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
-            w[c2] = (w[c2] + ((alpha * A[c2][c3]) * x[c3]));
+      for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 4)
+      for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+    {
+      w[c2 + 0] = w[c2 + 0] + ((alpha * A[c2 + 0][c3 + 0]) * x[c3 + 0]);
+      w[c2 + 0] = w[c2 + 0] + ((alpha * A[c2 + 0][c3 + 1]) * x[c3 + 1]);
+      w[c2 + 1] = w[c2 + 1] + ((alpha * A[c2 + 1][c3 + 0]) * x[c3 + 0]);
+      w[c2 + 1] = w[c2 + 1] + ((alpha * A[c2 + 1][c3 + 1]) * x[c3 + 1]);
+      w[c2 + 2] = w[c2 + 2] + ((alpha * A[c2 + 2][c3 + 0]) * x[c3 + 0]);
+      w[c2 + 2] = w[c2 + 2] + ((alpha * A[c2 + 2][c3 + 1]) * x[c3 + 1]);
+      w[c2 + 3] = w[c2 + 3] + ((alpha * A[c2 + 3][c3 + 0]) * x[c3 + 0]);
+      w[c2 + 3] = w[c2 + 3] + ((alpha * A[c2 + 3][c3 + 1]) * x[c3 + 1]);
+    }
+
+
+
+
   }
+  #pragma endscop
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 }
 
 static

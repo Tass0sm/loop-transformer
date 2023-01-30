@@ -106,21 +106,73 @@ void kernel_gemm_opt(int ni, int nj, int nk,
 
   /* ppcg generated CPU code */
 
-  #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; })
-  #define ppcg_max(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x > _y ? _x : _y; })
+{
+  #pragma scop
   #pragma omp parallel for
   #pragma coalesce (c0,c1)
+  #pragma unroll (c3:4,c5:2), licm
   for (int c0 = 0; c0 < ni; c0 += 32)
     for (int c1 = 0; c1 < nj; c1 += 32)
-      for (int c2 = 0; c2 <= ppcg_max(0, nk - 1); c2 += 32)
-        for (int c3 = c0; c3 <= ppcg_min(ni - 1, c0 + 31); c3 += 1)
-          for (int c4 = c1; c4 <= ppcg_min(nj - 1, c1 + 31); c4 += 1) {
-            if (c2 == 0)
-              C[c3][c4] *= beta;
-            #pragma unroll (c3:4,c5:2), licm
-            for (int c5 = c2; c5 <= ppcg_min(nk - 1, c2 + 31); c5 += 1)
-              C[c3][c4] += ((alpha * A[c3][c5]) * B[c5][c4]);
-          }
+    for (int c2 = 0; c2 <= ppcg_max(0, nk - 1); c2 += 32)
+    for (int c3 = c0; c3 <= ppcg_min(ni - 1, c0 + 31); c3 += 4)
+    for (int c4 = c1; c4 <= ppcg_min(nj - 1, c1 + 31); c4 += 1)
+  {
+    if (c2 == 0)
+      C[c3 + 0][c4] *= beta;
+    {
+      for (int c5 = c2; c5 <= ppcg_min(nk - 1, c2 + 31); c5 += 2)
+      {
+        C[c3 + 0][c4] += (alpha * A[c3 + 0][c5 + 0]) * B[c5 + 0][c4];
+        C[c3 + 0][c4] += (alpha * A[c3 + 0][c5 + 1]) * B[c5 + 1][c4];
+      }
+
+    }
+    if (c2 == 0)
+      C[c3 + 1][c4] *= beta;
+    for (int c5 = c2; c5 <= ppcg_min(nk - 1, c2 + 31); c5 += 2)
+    {
+      C[c3 + 1][c4] += (alpha * A[c3 + 1][c5 + 0]) * B[c5 + 0][c4];
+      C[c3 + 1][c4] += (alpha * A[c3 + 1][c5 + 1]) * B[c5 + 1][c4];
+    }
+
+    if (c2 == 0)
+      C[c3 + 2][c4] *= beta;
+    for (int c5 = c2; c5 <= ppcg_min(nk - 1, c2 + 31); c5 += 2)
+    {
+      C[c3 + 2][c4] += (alpha * A[c3 + 2][c5 + 0]) * B[c5 + 0][c4];
+      C[c3 + 2][c4] += (alpha * A[c3 + 2][c5 + 1]) * B[c5 + 1][c4];
+    }
+
+    if (c2 == 0)
+      C[c3 + 3][c4] *= beta;
+    for (int c5 = c2; c5 <= ppcg_min(nk - 1, c2 + 31); c5 += 2)
+    {
+      C[c3 + 3][c4] += (alpha * A[c3 + 3][c5 + 0]) * B[c5 + 0][c4];
+      C[c3 + 3][c4] += (alpha * A[c3 + 3][c5 + 1]) * B[c5 + 1][c4];
+    }
+
+  }
+
+
+
+
+
+  #pragma endscop
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 }
 

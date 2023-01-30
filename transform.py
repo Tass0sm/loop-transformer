@@ -27,6 +27,9 @@ class TransformationApplier(BetterNodeVisitor):
             dump(loop)
             parent.block_items[index + 1] = loop
 
+source = "./benchmarks/fdtd-apml.ppcg.c.in"
+destination = "./nothing.txt"
+
 def transform(source, destination):
     ast = parse_file(source, use_cpp=True, cpp_args=[r'-I../pycparser/utils/fake_libc_include',
                                                      r'-I.'])
@@ -39,15 +42,18 @@ def transform(source, destination):
         text = s.read()
         indexed_lines = list(enumerate(text.split("\n")))
 
-        ta = TransformationApplier()
+        # ta = TransformationApplier()
         for s in scops:
-            ta.visit(s, None, None, None)
+            # ta.visit(s, None, None, None)
 
             l0 = s.block_items[0].coord.line - 1
             l1 = s.block_items[-1].coord.line - 1
             generator = c_generator.CGenerator()
             replacement = generator.visit(s)
             replace_code_between_lines(indexed_lines, replacement, l0, l1)
+
+        for_node = s.block_items[1].block_items[7]
+        # for_node = for_node.stmt.stmt
 
         lines = [il[1] for il in indexed_lines]
         d.write("\n".join(lines))

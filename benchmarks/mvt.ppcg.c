@@ -107,27 +107,89 @@ void kernel_mvt_opt(int n,
 {
   int i, j;
 
-  /* ppcg generated CPU code */
-
-  #define ppcg_min(x,y)    ({ __typeof__(x) _x = (x); __typeof__(y) _y = (y); _x < _y ? _x : _y; })
+{
+  #pragma scop
   {
     #pragma omp parallel for
     #pragma coalesce (c0)
+    #pragma unroll (c2:4,c3:2), licm
     for (int c0 = 0; c0 < n; c0 += 32)
       for (int c1 = 0; c1 < n; c1 += 32)
-        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1)
-          #pragma unroll (c2:4,c3:2), licm
-          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
-            x1[c2] = (x1[c2] + (A[c2][c3] * y_1[c3]));
+      for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 4)
+    {
+      DATA_TYPE invariant_0 = x1[c2 + 0];
+      DATA_TYPE invariant_1 = x1[c2 + 1];
+      DATA_TYPE invariant_2 = x1[c2 + 2];
+      DATA_TYPE invariant_3 = x1[c2 + 3];
+      for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+      {
+        x1[c2 + 0] = invariant_0 + (A[c2 + 0][c3 + 0] * y_1[c3 + 0]);
+        x1[c2 + 0] = invariant_0 + (A[c2 + 0][c3 + 1] * y_1[c3 + 1]);
+        x1[c2 + 1] = invariant_1 + (A[c2 + 1][c3 + 0] * y_1[c3 + 0]);
+        x1[c2 + 1] = invariant_1 + (A[c2 + 1][c3 + 1] * y_1[c3 + 1]);
+        x1[c2 + 2] = invariant_2 + (A[c2 + 2][c3 + 0] * y_1[c3 + 0]);
+        x1[c2 + 2] = invariant_2 + (A[c2 + 2][c3 + 1] * y_1[c3 + 1]);
+        x1[c2 + 3] = invariant_3 + (A[c2 + 3][c3 + 0] * y_1[c3 + 0]);
+        x1[c2 + 3] = invariant_3 + (A[c2 + 3][c3 + 1] * y_1[c3 + 1]);
+      }
+
+    }
+
+
+
     #pragma omp parallel for
     #pragma coalesce (c0)
+    #pragma unroll (c2:4,c3:2), licm
     for (int c0 = 0; c0 < n; c0 += 32)
       for (int c1 = 0; c1 < n; c1 += 32)
-        for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 1)
-          #pragma unroll (c2:4,c3:2), licm
-          for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 1)
-            x2[c2] = (x2[c2] + (A[c3][c2] * y_2[c3]));
+      for (int c2 = c0; c2 <= ppcg_min(n - 1, c0 + 31); c2 += 4)
+    {
+      DATA_TYPE invariant_0 = x2[c2 + 0];
+      DATA_TYPE invariant_1 = x2[c2 + 1];
+      DATA_TYPE invariant_2 = x2[c2 + 2];
+      DATA_TYPE invariant_3 = x2[c2 + 3];
+      for (int c3 = c1; c3 <= ppcg_min(n - 1, c1 + 31); c3 += 2)
+      {
+        x2[c2 + 0] = invariant_0 + (A[c3 + 0][c2 + 0] * y_2[c3 + 0]);
+        x2[c2 + 0] = invariant_0 + (A[c3 + 1][c2 + 0] * y_2[c3 + 1]);
+        x2[c2 + 1] = invariant_1 + (A[c3 + 0][c2 + 1] * y_2[c3 + 0]);
+        x2[c2 + 1] = invariant_1 + (A[c3 + 1][c2 + 1] * y_2[c3 + 1]);
+        x2[c2 + 2] = invariant_2 + (A[c3 + 0][c2 + 2] * y_2[c3 + 0]);
+        x2[c2 + 2] = invariant_2 + (A[c3 + 1][c2 + 2] * y_2[c3 + 1]);
+        x2[c2 + 3] = invariant_3 + (A[c3 + 0][c2 + 3] * y_2[c3 + 0]);
+        x2[c2 + 3] = invariant_3 + (A[c3 + 1][c2 + 3] * y_2[c3 + 1]);
+      }
+
+    }
+
+
+
   }
+  #pragma endscop
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 }
 
