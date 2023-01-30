@@ -235,19 +235,21 @@ class Unroller(NodeMapper):
         self.unroll_guide = unroll_guide
 
     def map_For(self, node):
+        node.stmt = self.map(node.stmt)
         iter_id = loop_iter(node)
+
         if iter_id.name in self.unroll_guide:
             n = self.unroll_guide[iter_id.name]
             loop = unroll_and_jam(node, n)
         else:
             loop = deepcopy(node)
 
-        loop.stmt = self.generic_map(loop.stmt)
         return loop
 
 # traverse the for_node and unroll_and_jam by the amount specified for its
 # iterator's name.
 def preform_all_unrolling(for_node, unroll_guide):
+    print(f"Unrolling according to {unroll_guide}...")
     u = Unroller(unroll_guide)
     return u.map(for_node)
 
@@ -353,6 +355,7 @@ class Hoister(NodeMapper):
 # it. hoisting a higher loop can hoist the initialization created from hoisting
 # a lower loop.
 def preform_all_hoisting(for_node):
+    print(f"Hoisting...")
     h = Hoister()
     return h.map(for_node)
 

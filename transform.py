@@ -11,16 +11,19 @@ import re
 class TransformationApplier(BetterNodeVisitor):
     def visit_Pragma(self, node, parent, name, index):
         if "unroll" in node.string:
-            result = re.findall(r"\(([_a-zA-Z]+):(\d+)\)", node.string)
+            result = re.findall(r"([_a-zA-Z][_a-zA-Z0-9]*):(\d+)", node.string)
             unroll_guide = dict(result)
             unroll_guide = {k: int(v) for k, v in unroll_guide.items()}
 
             original_loop = parent.block_items[index + 1]
+            print("ORIGINAL LOOP:")
+            dump(original_loop)
             loop = preform_all_unrolling(original_loop, unroll_guide)
             if "licm" in node.string:
                 loop = preform_all_hoisting(loop)
             if "prefetch" in node.string:
                 loop = preform_all_prefetching(loop)
+            print("NEW LOOP:")
             dump(loop)
             parent.block_items[index + 1] = loop
 
@@ -45,8 +48,6 @@ def transform(source, destination):
             generator = c_generator.CGenerator()
             replacement = generator.visit(s)
             replace_code_between_lines(indexed_lines, replacement, l0, l1)
-
-        for_node = scops[1].block_items[2]
 
         lines = [il[1] for il in indexed_lines]
         d.write("\n".join(lines))

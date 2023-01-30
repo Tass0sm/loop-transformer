@@ -10,8 +10,6 @@ BM=$1
 
 cd benchmarks/
 
-# ./transform.py ./gemver-pre.c ./gemver.c
-
 if [ ! -f $BM.c ]; then
   echo "File $BM.c not found. Aborting ..."
   exit
