@@ -78,6 +78,8 @@ class NodeMapper(object):
             return c_ast.UnaryOp(node.op, self.map(node.expr))
         elif isinstance(node, c_ast.BinaryOp):
             return c_ast.BinaryOp(node.op, self.map(node.left), self.map(node.right))
+        elif isinstance(node, c_ast.Assignment):
+            return c_ast.Assignment(node.op, self.map(node.lvalue), self.map(node.rvalue))
         else:
             return deepcopy(node)
 
@@ -177,6 +179,15 @@ class IdReplacer(BetterNodeVisitor):
         target = self.rules.get(node.name, None)
         if target is not None:
             setattr(parent, name, deepcopy(target))
+
+class IdFinder(NodeVisitor):
+    def __init__(self, target_name):
+        self.target_name = target_name
+        self.found = False
+
+    def visit_ID(self, node):
+        if node.name == self.target_name:
+            self.found = True
 
 def dump(node):
     generator = c_generator.CGenerator()
@@ -300,15 +311,6 @@ def preform_all_unrolling(for_node, unroll_guide):
 ###############################################################################
 #                                     licm                                    #
 ###############################################################################
-
-class IdFinder(NodeVisitor):
-    def __init__(self, target_name):
-        self.target_name = target_name
-        self.found = False
-
-    def visit_ID(self, node):
-        if node.name == self.target_name:
-            self.found = True
 
 class AssignmentLeftSearcher(NodeVisitor):
     def __init__(self, node):
@@ -436,7 +438,7 @@ class ExprReplacer(BetterNodeVisitor):
 
     # Only recurse into right side of assignments
     def visit_Assignment(self, node, parent, name, index):
-        self.generic_visit(node.rvalue, parent, name, index)
+        self.visit(node.rvalue, parent, name, index)
 
     def visit_ArrayRef(self, node, parent, name, index):
         if hash(repr(node)) not in self.expr_to_name_dict.keys():
@@ -449,7 +451,6 @@ class ExprReplacer(BetterNodeVisitor):
 
         # replace it
         setattr(parent, name, c_ast.ID(name=temp_name))
-
 
 # traverses body for expressions, replaces them in the
 # loop with id("prefetch_j"), and associates that id with the expression in the
@@ -529,5 +530,6 @@ class Prefetcher(NodeMapper):
 # it. hoisting a higher loop can hoist the initialization created from hoisting
 # a lower loop.
 def preform_all_prefetching(for_node):
+    print("Prefetching...")
     p = Prefetcher()
     return p.map(for_node)
