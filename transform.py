@@ -10,15 +10,19 @@ import re
 
 class TransformationApplier(BetterNodeVisitor):
     def visit_Pragma(self, node, parent, name, index):
-        if "unroll" in node.string:
-            result = re.findall(r"([_a-zA-Z][_a-zA-Z0-9]*):(\d+)", node.string)
-            unroll_guide = dict(result)
-            unroll_guide = {k: int(v) for k, v in unroll_guide.items()}
-
+        if "transform" in node.string:
             original_loop = parent.block_items[index + 1]
+
             print("ORIGINAL LOOP:")
             dump(original_loop)
-            loop = preform_all_unrolling(original_loop, unroll_guide)
+
+            loop = original_loop
+
+            if "unroll" in node.string:
+                result = re.findall(r"([_a-zA-Z][_a-zA-Z0-9]*):(\d+)", node.string)
+                unroll_guide = dict(result)
+                unroll_guide = {k: int(v) for k, v in unroll_guide.items()}
+                loop = preform_all_unrolling(loop, unroll_guide)
             if "licm" in node.string:
                 loop = preform_all_hoisting(loop)
             if "prefetch" in node.string:

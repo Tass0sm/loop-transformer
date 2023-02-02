@@ -107,6 +107,10 @@ def step_amount(for_node):
     elif isinstance(inc, c_ast.BinaryOp):
         if inc.op == "+=":
             return inc.right
+    elif isinstance(inc, c_ast.Assignment):
+        if inc.op == "+=":
+            return inc.rvalue
+
 
 def concat_nodes(node1, node2):
     if isinstance(node1, c_ast.Compound):
@@ -478,7 +482,7 @@ def prefetch(for_node, j=0):
     lower_bound = loop_lower_bound(new_for_node)
     upper_bound = loop_upper_bound(new_for_node)
     inc = step_amount(new_for_node)
-    new_upper_bound = c_ast.BinaryOp("-", upper_bound, inc)
+    new_upper_bound = c_ast.BinaryOp("-", upper_bound, deepcopy(inc))
     new_for_node.cond.right = new_upper_bound
     body = new_for_node.stmt
 
@@ -494,7 +498,7 @@ def prefetch(for_node, j=0):
     # the loop, with prefetching appended to the loop body
     prefetch_assignments = [deepcopy(make_assignment(name, init)) for name, init in expr_dict.items()]
     step_block = c_ast.Compound(prefetch_assignments)
-    ir = IdReplacer({iter_id.name: c_ast.BinaryOp("+", iter_id, inc)})
+    ir = IdReplacer({iter_id.name: c_ast.BinaryOp("+", iter_id, deepcopy(inc))})
     ir.visit(step_block, None, None, None)
     new_for_node.stmt = concat_nodes(new_for_node.stmt, step_block)
     result_block += [new_for_node]
