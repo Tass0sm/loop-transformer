@@ -25,6 +25,8 @@ class TransformationApplier(BetterNodeVisitor):
                 loop = preform_all_unrolling(loop, unroll_guide)
             if "licm" in node.string:
                 loop = preform_all_hoisting(loop)
+            if "scalar" in node.string:
+                loop = preform_all_scalarizing(loop)
             if "prefetch" in node.string:
                 loop = preform_all_prefetching(loop)
             print("NEW LOOP:")

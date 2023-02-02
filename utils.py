@@ -467,9 +467,9 @@ def extract_data_for_prefetching(for_node, j):
     inc = for_node.next
     return c_ast.For(init, cond, inc, new_body), er.name_to_expr_dict
 
-def make_assignment(name, value):
+def make_assignment(node, value):
     return c_ast.Assignment(op='=',
-                            lvalue=c_ast.ID(name=name),
+                            lvalue=node,
                             rvalue=value)
 
 # create a compound stmt containing initialization code for prefetched data, the
@@ -497,7 +497,7 @@ def prefetch(for_node, j=0):
     result_block += prologue_block
 
     # the loop, with prefetching appended to the loop body
-    prefetch_assignments = [deepcopy(make_assignment(name, init)) for name, init in expr_dict.items()]
+    prefetch_assignments = [deepcopy(make_assignment(c_ast.ID(name=name), init)) for name, init in expr_dict.items()]
     step_block = c_ast.Compound(prefetch_assignments)
     ir = IdReplacer({iter_id.name: c_ast.BinaryOp("+", iter_id, deepcopy(inc))})
     ir.visit(step_block, None, None, None)
@@ -533,3 +533,114 @@ def preform_all_prefetching(for_node):
     print("Prefetching...")
     p = Prefetcher()
     return p.map(for_node)
+
+###############################################################################
+#                                 scalarizing                                 #
+###############################################################################
+
+# checks if node references the for_node iterator at all and also if the node is
+# contained in the left hand sign of any assignment
+def is_scalarizable(node, for_node):
+    iter_id_name = loop_iter(for_node).name
+    id_finder = IdFinder(iter_id_name)
+    id_finder.visit(node)
+    return (not id_finder.found)
+
+class ScalarizableExprVisitor(NodeVisitor):
+    def __init__(self, target_loop, i):
+        self.target_loop = target_loop
+        self.expr_i = i
+        self.name_to_expr_dict = {}
+        self.expr_to_name_dict = {}
+
+    # Don't recurse into for loop children
+    def visit_For(self, node):
+        return
+
+    # Only recurse into left side of assignments
+    def visit_Assignment(self, node):
+        self.visit(node.lvalue)
+
+    # Only recurse into left side of += operations
+    def visit_BinaryOp(self, node):
+        dump(node.lvalue)
+        self.visit(node.lvalue)
+
+    def visit_ArrayRef(self, node):
+        if is_scalarizable(node, self.target_loop):
+            if hash(repr(node)) not in self.expr_to_name_dict.keys():
+                temp_name = f"scalar_{self.expr_i}"
+                self.expr_to_name_dict[hash(repr(node))] = temp_name
+                self.name_to_expr_dict[temp_name] = node
+                self.expr_i += 1
+
+class ScalarizableExprMapper(NodeMapper):
+    def __init__(self, expr_to_name_dict):
+        self.expr_to_name_dict = expr_to_name_dict
+
+    # Don't recurse into for loop children
+    def map_For(self, node):
+        return node
+
+    def map_ArrayRef(self, node):
+        if hash(repr(node)) in self.expr_to_name_dict.keys():
+            return c_ast.ID(name=self.expr_to_name_dict[hash(repr(node))])
+        else:
+            return node
+
+# create a compound stmt containing initialization code for prefetched data, the
+# for loop with the prefetched data replaced, prefetch variable updates at the
+# end of the loop, and finally an epilogue which repeats the loop body with
+# prefetched data replaced. The last INC iterations of the loop are also peeled.
+def scalarize(for_node, j=0):
+    iter_id_name = loop_iter(for_node).name
+    sev = ScalarizableExprVisitor(for_node, j)
+    sev.visit(for_node.stmt)
+    expr_to_name_dict = sev.expr_to_name_dict
+    name_to_expr_dict = sev.name_to_expr_dict
+
+    result_block = []
+
+    # the prologue, which initializes the scaralized expressions
+    scalar_declarations = [deepcopy(make_decl(name, init)) for name, init in name_to_expr_dict.items()]
+    prologue_block = c_ast.Compound(scalar_declarations)
+    result_block += prologue_block
+
+    # the loop, with prefetching appended to the loop body
+    new_for_node = deepcopy(for_node)
+    body = new_for_node.stmt
+    sem = ScalarizableExprMapper(expr_to_name_dict)
+    new_for_node.stmt = sem.map(body)
+    result_block += [new_for_node]
+
+    # the epilogue, which writes the scalars back to the array
+    scalar_writebacks = [deepcopy(make_assignment(init, c_ast.ID(name=name))) for name, init in name_to_expr_dict.items()]
+    epilogue_block = c_ast.Compound(scalar_writebacks)
+    result_block += epilogue_block
+
+    return c_ast.Compound(result_block)
+
+class Scalarizer(NodeMapper):
+    def __init__(self):
+        self.scalar_j = 0
+        self.applied = False
+
+    def map_For(self, node):
+        body = self.map(node.stmt)
+        node.stmt = body
+
+        if not self.applied:
+            loop = scalarize(node, self.scalar_j)
+            self.applied = True
+        else:
+            loop = node
+
+        return loop
+
+# does a post-order traversal of the for loop nest. at each for_loop, hoist
+# it. hoisting a higher loop can hoist the initialization created from hoisting
+# a lower loop.
+def preform_all_scalarizing(for_node):
+    print(f"Scalarizing...")
+    s = Scalarizer()
+    return s.map(for_node)
